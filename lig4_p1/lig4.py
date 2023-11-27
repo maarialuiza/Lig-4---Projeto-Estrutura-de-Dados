@@ -1,6 +1,13 @@
 import pygame
 import sys
 import constantes as cte
+import paho.mqtt.client as mqtt
+
+client = mqtt.Client()
+client.connect("192.168.31.15", 1883, 10)
+client.subscribe("player2/jogada")
+client.subscribe("player2/status")
+client.loop_start()
 
 # Matriz do jogo
 matriz_tabuleiro = [[' ' for _ in range(cte.COLUNAS)] for _ in range(cte.LINHAS)]
@@ -64,39 +71,59 @@ def verificar_vencedor(tabuleiro, jogador, linha, coluna, direcao):
     return False
 def verificar_empate(tabuleiro):
     return all(all(c != ' ' for c in linha) for linha in tabuleiro)
-
 def main():
+
     jogador_atual = "X"  # Começa com o jogador 1
+
+    def sub_jogada(client, userdata, message):
+        cte.COORD = str(message.payload.decode('utf-8'))
+    def sub_status(client, userdata, message):
+        cte.JOGADA_STATUS = str(message.payload.decode('utf-8'))
 
     while True:
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            
+            client.message_callback_add("player2/status", sub_status)
+            client.message_callback_add("player2/jogada", sub_jogada)
+            
+            if(cte.COORD != ''):
+                coord = cte.COORD.split()
+                linha = int(coord[0])
+                coluna = int(coord[1])
+                if matriz_tabuleiro[linha][coluna] == " ":
+                    jogador = "O"
+                    cor = cte.AMARELO
+                    pygame.draw.circle(janela, cor, (coluna * cte.TAMANHO_CASA + cte.TAMANHO_CASA // 2, linha * cte.TAMANHO_CASA + cte.TAMANHO_CASA // 2), cte.TAMANHO_CASA // 2 - cte.BORDA)
+                    matriz_tabuleiro[linha][coluna] = jogador
 
-            if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
-                pos_mouse = pygame.mouse.get_pos()
-                coluna = pos_mouse[0] // cte.TAMANHO_CASA
-                for linha in range(cte.LINHAS - 1, -1, -1):
-                    if matriz_tabuleiro[linha][coluna] == " ":
-                        jogador = "X" if jogador_atual == "X" else "O"
-                        cor = cte.VERMELHO if jogador == "X" else cte.AMARELO
-                        pygame.draw.circle(janela, cor, (coluna * cte.TAMANHO_CASA + cte.TAMANHO_CASA // 2, linha * cte.TAMANHO_CASA + cte.TAMANHO_CASA // 2), cte.TAMANHO_CASA // 2 - cte.BORDA)
-                        matriz_tabuleiro[linha][coluna] = jogador
-                        
-                        for direcao in ['vertical', 'horizontal', 'diagonal_direita', 'diagonal_esquerda']:
-                            if verificar_vencedor(matriz_tabuleiro, jogador, linha, coluna, direcao):
-                                print(f"Jogador {jogador} venceu!")
+            if(cte.JOGADA_STATUS == "p1"):
+                if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                    pos_mouse = pygame.mouse.get_pos()
+                    coluna = pos_mouse[0] // cte.TAMANHO_CASA
+                    for linha in range(cte.LINHAS - 1, -1, -1):
+                        if matriz_tabuleiro[linha][coluna] == " ":
+                            jogador = "X"
+                            cor = cte.VERMELHO
+                            pygame.draw.circle(janela, cor, (coluna * cte.TAMANHO_CASA + cte.TAMANHO_CASA // 2, linha * cte.TAMANHO_CASA + cte.TAMANHO_CASA // 2), cte.TAMANHO_CASA // 2 - cte.BORDA)
+                            matriz_tabuleiro[linha][coluna] = jogador
+                            client.publish("player1/jogada", f"{linha} {coluna}", qos=0)
+                            cte.JOGADA_STATUS = "p2"
+                            client.publish("player1/status", cte.JOGADA_STATUS, qos=0)
+                            
+                            for direcao in ['vertical', 'horizontal', 'diagonal_direita', 'diagonal_esquerda']:
+                                if verificar_vencedor(matriz_tabuleiro, jogador, linha, coluna, direcao):
+                                    print(f"Jogador {jogador} venceu!")
+                                    pygame.quit()
+                                    sys.exit()
+
+                            if verificar_empate(matriz_tabuleiro):
+                                print("Empate!")
                                 pygame.quit()
                                 sys.exit()
-
-                        if verificar_empate(matriz_tabuleiro):
-                            print("Empate!")
-                            pygame.quit()
-                            sys.exit()
-
-                        jogador_atual = "O" if jogador_atual == "X" else "X"
-                        break
+                            break
 
         pygame.display.update()
 
